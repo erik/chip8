@@ -9,9 +9,11 @@ uses
    Screen, SDL;
 
 const
-   MemorySize = $0FFF;
-   StackSize  = $F;
-   ClockTick  = 1000 div 60;
+   MemorySize  = $0FFF;
+   ROMSize     = MemorySize - $200;
+   StackSize   = $10;
+   ClockTick   = 1000 div 60;
+   ScreenScale = 15;
 
    { default character palatte }
    Font : array [0 .. $4F] of Byte
@@ -32,7 +34,7 @@ const
          $F0, $80, $F0, $80, $F0,
          $F0, $80, $F0, $80, $80);
 
-type Chip8ROM = array [0 .. MemorySize] of Byte;
+type Chip8ROM = array [0 .. ROMSize] of Byte;
 
 type TChip8VM = class
 private
@@ -48,11 +50,10 @@ private
 
    DelayTimer, SoundTimer : Byte;
 
-   Stack                  : array [0 .. StackSize] of Word;
-   SP                     : Byte;
+   Stack                  : array [1 .. StackSize] of Word;
+   SP                     : 0 .. StackSize;
 
    Screen                 : TScreen;
-   ScreenArr              : ScreenArray;
 public
    constructor Create (Prog : Chip8ROM);
    destructor Destroy; override;
@@ -70,65 +71,67 @@ var
 begin
    Randomize;
 
+   for I := 0 to High (Registers) do
+      Registers [I] := 0;
+
+   for I := 0 to High (Font) do
+      Memory [I] := Font [I];
+
+   for I := 0 to High (Prog) do
+      Memory [I + $200] := Prog [I];
+
+   for I := 1 to High (Stack) do
+      Stack [I] := 0;
+
    RegisterI := 0;
    DelayTimer := 0;
    SoundTimer := 0;
-   PC := 0;
+   PC := $200;
    SP := 0;
 
-   for I := 0 to $F do
-   begin
-      Registers [I] := 0;
-   end;
-
-   { TODO: is there a memcpy-esque function for pascal? }
-   for I := 0 to MemorySize do
-   begin
-      Memory [I] := Prog [I];
-   end;
-
-   for I := 0 to StackSize do
-   begin
-      Stack [I] := 0;
-   end;
-
+   Screen := TScreen.Create (ScreenScale);
    ClearScreen;
-
-   Screen := TScreen.Create (128, 64);
 end;
 
 destructor TChip8VM.Destroy;
 begin
-   Screen.Destroy;
+   Screen.Free;
    inherited Destroy;
 end;
 
 procedure TChip8VM.Evaluate;
 var
-   Instruction      : Word;
-   OP               : Byte;
-   X, Y, RX, RY, KK : Byte;
-   NNN              : Word;
+   Instruction         : Word;
+   OP                  : Byte;
+   X, Y, RX, RY, KK, N : Byte;
+   NNN                 : Word;
 
-   KeyState         : KeyboardState;
+   KeyState            : KeyboardState;
 
    { general purpose }
-   I : Integer;
+   I, J, K : Integer;
 begin
    Instruction := (Memory [PC] shl 8) or Memory [PC + 1];
    PC := PC + 2;
 
-   OP := (Instruction and $F000) shr 12;
-   X  := (Instruction and $0F00) shr  8;
-   Y  := (Instruction and $00F0) shr  4;
+   I := 0;
+   J := 0;
+   K := 0;
 
-   KK := Instruction and $00FF;
-   NNN:= Instruction and $0FFF;
+   OP  := (Instruction and $F000) shr 12;
+   X   := (Instruction and $0F00) shr  8;
+   Y   := (Instruction and $00F0) shr  4;
 
-   RX := Registers [X];
-   RY := Registers [Y];
+   KK  := Instruction and $00FF;
+   NNN := Instruction and $0FFF;
+   N   := Instruction and $000F;
+
+   RX  := Registers [X];
+   RY  := Registers [Y];
 
    KeyState := Screen.KeyState;
+
+   { write (Format ('%.4x ', [Instruction])); }
 
    if DelayTimer > 0 then DelayTimer := DelayTimer - 1;
    if SoundTimer > 0 then SoundTimer := SoundTimer - 1;
@@ -147,14 +150,16 @@ begin
             $EE: begin
                     PC := Stack [SP];
                     SP := SP - 1;
+                    { writeln ('RTS: PC => ', PC, ' SP=> ', SP); }
                  end;
          else    {SYS, unused};
          end;
-      1: {JP}    PC := NNN;
+      1: {JP}    begin PC := NNN; {writeln('pc => ', nnn); } end;
       2: {CALL}
          begin
             SP := SP + 1;
             Stack [SP] := PC;
+            { writeln ('CALL: PC => ', PC, ' SP => ', SP, ' JMP => ', NNN); }
             PC := NNN;
          end;
       3: {SE}    if RX =  KK then PC := PC + 2;
@@ -198,7 +203,24 @@ begin
       $A: {LD}   RegisterI := NNN;
       $B: {JP}   PC := Registers [0] + NNN;
       $C: {RND}  Registers [X] := Random ($100) and KK;
-      $D: {DRW} {TODO};
+      $D: {DRW}  begin
+                    Registers [$F] := 0;
+                    // Y coord
+                    for I := 0 to N - 1do
+                           // X coord
+                           for J := 0 to 7 do
+                              // if current bit is not set
+                              if (Memory [RegisterI + I] and ($80 shr J)) <> 0 then
+                              begin
+                                 K := Screen.GetPixel ((RX + J), (RY + I));
+
+                                 if K = 1 then
+                                    Registers [$F] := 1;
+
+                                 Screen.SetPixel((RX + J), (RY + I), K xor 1);
+                              end;
+                 end;
+
       $E: {SKP, SKNP}
          case KK of
             $9E: if KeyState [RX and $F] = 1  then PC := PC + 2;
@@ -211,8 +233,12 @@ begin
             $15: DelayTimer := RX;
             $18: SoundTimer := RX;
             $1E: RegisterI  := RegisterI + RX;
-            $29: {TODO};
-            $33: {TODO};
+            $29: RegisterI  := 5 * RX;
+            $33: begin
+                    Memory [RegisterI] := RX div 100;
+                    Memory [RegisterI + 1] := (RX div 10) mod 10;
+                    Memory [RegisterI + 2] := (RX mod 100) mod 10;
+                 end;
             $55:
                for I := 0 to $F do
                   Memory [RegisterI + I] := Registers [I];
@@ -225,12 +251,11 @@ end;
 
 procedure TChip8VM.ClearScreen;
 var
-   I : Integer;
+   I, J : Integer;
 begin
-   for I := 0 to ScreenSize do
-   begin
-      ScreenArr [I] := 0;
-   end;
+   for I := 0 to 63 do
+      for J := 0 to 31 do
+         Screen.SetPixel (I, J, 0);
 end;
 
 procedure TChip8VM.RunLoop;
@@ -238,7 +263,8 @@ begin
    while True do
    begin
       Evaluate;
-      Screen.DisplayScreen (ScreenArr);
+      Screen.Display;
+      Screen.UpdateKeyState;
       SDL_Delay (ClockTick);
    end;
 end;
