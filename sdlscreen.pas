@@ -10,14 +10,16 @@ type TSDLScreen = class (TScreen)
 private
    Scale         : Integer;
    DisplayScreen : pSDL_Surface;
-   function HandleEvent (event : pSDL_Event):Integer;
+   function HandleEvent (event : pSDL_Event) : KeyPress;
+
+protected
+   function PollKey : Screen.KeyPress; override;
+   function WaitKey : Screen.KeyPress; override;
 public
    constructor Create (S : Integer); reintroduce;
    destructor Destroy; override;
 
    procedure Display; override;
-   procedure UpdateKeyState; override;
-   function  WaitKey : Byte; override;
 end;
 
 implementation
@@ -48,14 +50,14 @@ end;
 
 procedure TSDLScreen.Display;
 var
-   I, J : Integer;
+   I, J   : Integer;
    SX, SY : Integer;
-   P : LongWord;
+   P      : LongWord;
 begin
    for I := 0 to ScreenWidth - 1 do
       for J := 0 to ScreenHeight - 1 do
       begin
-         if Self.Screen [I][J] <> 0 then P := $00FF00FF else P := $222222FF;
+         if Self.Screen [I][J] then P := $00FF00FF else P := $222222FF;
          SX := I * Scale;
          SY := J * Scale;
 
@@ -65,64 +67,72 @@ begin
 end;
 
 
-function TSDLScreen.HandleEvent (event : pSDL_Event) : Integer;
+function TSDLScreen.HandleEvent (Event : pSDL_Event) : KeyPress;
 begin
-   case event^.type_ of
-      SDL_KEYDOWN:
-         begin
-            { 27 = Escape }
-            if event^.key.keysym.sym = 27 then
-               raise QuitException.Create ('Quit');
-            // TODO
-            Result := 0;
+   Result.KeyType := None;
+
+   case Event^.Type_ of
+      SDL_KEYDOWN: Result.KeyType := Press;
+      SDL_KEYUP:   Result.KeyType := Release;
+      SDL_QUITEV:  raise QuitException.Create ('Quit');
+   end;
+
+   if Result.KeyType <> None then
+      with Result do
+         case Event^.Key.Keysym.Sym of
+            SDLK_Escape : raise QuitException.Create ('Quit');
+            SDLK_KP0    : Key := 0;
+            SDLK_KP1    : Key := 1;
+            SDLK_KP2    : Key := 2;
+            SDLK_KP3    : Key := 3;
+            SDLK_KP4    : Key := 4;
+            SDLK_KP5    : Key := 5;
+            SDLK_KP6    : Key := 6;
+            SDLK_KP7    : Key := 7;
+            SDLK_KP8    : Key := 8;
+            SDLK_KP9    : Key := 9;
+            SDLK_KP_PERIOD   : Key := $A;
+            SDLK_KP_ENTER    : Key := $B;
+            SDLK_KP_PLUS     : Key := $C;
+            SDLK_KP_MINUS    : Key := $D;
+            SDLK_KP_MULTIPLY : Key := $E;
+            SDLK_KP_DIVIDE   : Key := $F;
+         else KeyType := None;
          end;
-
-      SDL_KEYUP:
-         begin
-            // TODO
-            Result := 1;
-         end;
-
-      SDL_QUITEV: raise QuitException.Create ('Quit');
-   end; // case event
-
-   Result := -1;
 end;
 
-procedure TSDLScreen.UpdateKeyState;
+{$GOTO ON}
+function TSDLScreen.PollKey : KeyPress;
 var
    Event : pSDL_Event;
+   label Retry;
 begin
    new (Event);
 
-   while SDL_PollEvent(event) = 1 do
-      HandleEvent (event);
+   Result.KeyType := None;
+
+   Retry :
+      if SDL_PollEvent(Event) = 1 then
+         if (Event^.Type_ <> SDL_KEYDOWN) and
+               (Event^.Type_ <> SDL_KEYUP) and
+               (Event^.Type_ <> SDL_QUITEV) then
+            goto Retry
+         else Result := HandleEvent (Event);
 
    dispose (Event);
 end;
 
-// Blocking, waits for a key press
-function TSDLScreen.WaitKey : Byte;
+function TSDLScreen.WaitKey : KeyPress;
 var
    Event : pSDL_Event;
-   I : Integer;
 begin
    new (Event);
-
-   write ('waiting for key...');
-
-   // continuous loop because a non-keypress event may be generated.
-   while True do
-   begin
+   repeat
       SDL_WaitEvent (Event);
-      I := HandleEvent (Event);
-      if I <> -1 then break;
-   end; // while true
+      Result := HandleEvent (Event);
+   until Result.KeyType <> None;
 
    dispose (Event);
-
-   writeln ('done!');
-   Result := I;
 end;
 
 end.

@@ -59,7 +59,6 @@ public
    destructor Destroy; override;
 
    procedure Evaluate;
-   procedure ClearScreen;
    procedure RunLoop;
 end;
 
@@ -90,7 +89,7 @@ begin
    SP := 0;
 
    Screen := TSDLScreen.Create (ScreenScale);
-   ClearScreen;
+   Screen.ClearScreen;
 end;
 
 destructor TChip8VM.Destroy;
@@ -101,22 +100,23 @@ end;
 
 procedure TChip8VM.Evaluate;
 var
-   Instruction         : Word;
-   OP                  : Byte;
-   X, Y, RX, RY, KK, N : Byte;
-   NNN                 : Word;
+   Instruction   : Word;
+   OP            : Byte;
+   X, Y          : 0 .. 15;
+   RX, RY, KK, N : Byte;
+   NNN           : Word;
 
    KeyState            : KeyboardState;
 
    { general purpose }
-   I, J, K : Integer;
+   I, J  : Integer;
+   B     : Boolean;
 begin
    Instruction := (Memory [PC] shl 8) or Memory [PC + 1];
-   PC := PC + 2;
+   PC          := PC + 2;
 
    I := 0;
    J := 0;
-   K := 0;
 
    OP  := (Instruction and $F000) shr 12;
    X   := (Instruction and $0F00) shr  8;
@@ -129,24 +129,17 @@ begin
    RX  := Registers [X];
    RY  := Registers [Y];
 
-   KeyState := Screen.KeyState;
+   KeyState := Screen.Keys;
 
    { write (Format ('%.4x ', [Instruction])); }
 
    if DelayTimer > 0 then DelayTimer := DelayTimer - 1;
    if SoundTimer > 0 then SoundTimer := SoundTimer - 1;
 
-   if DelayTimer <= 0 then DelayTimer := 0;
-   if SoundTimer <= 0 then
-   begin
-      SoundTimer := 0;
-      { TODO: Generate beep. }
-   end;
-
    case OP of
       0: {SYS, CLS, RET}
          case KK of
-            $E0: ClearScreen;
+            $E0: Screen.ClearScreen;
             $EE: begin
                     PC := Stack [SP];
                     SP := SP - 1;
@@ -166,7 +159,7 @@ begin
       4: {SNE}   if RX <> KK then PC := PC + 2;
       5: {SE}    if RX =  RY then PC := PC + 2;
       6: {LD}    Registers [X] := KK;
-      7: {ADD}   Registers [X] := RX + KK;
+      7: {ADD}   Registers [X] := (RX + KK) and $FF;
       8: {LD, OR, AND, XOR, SUB, SHR, SUBN, SHL}
          case KK of
             0: Registers [X] := RY;
@@ -175,7 +168,7 @@ begin
             3: Registers [X] := RX xor RY;
             4: begin
                   I := RX + RY;
-                  if I > 255 then Registers [$F] := 1;
+                  if I > $FF then Registers [$F] := 1;
                   Registers [X] := I and $FF;
                end;
             5: begin
@@ -194,68 +187,68 @@ begin
                   Registers [X] := RY - RX;
                end;
             $E: begin
-                   if RX and $1000 = $1 then Registers [$F] := 1
+                   if (RX shr 7) and $1 = $1 then Registers [$F] := 1
                    else Registers [$F] := 0;
-                   Registers [X] := RX * 2;
+                   Registers [X] := RX shl 1;
                 end;
          end;
       9: {SNE}   if RX <> RY then PC := PC + 2;
       $A: {LD}   RegisterI := NNN;
-      $B: {JP}   PC := Registers [0] + NNN;
+      $B: {JP}   PC := (Registers [0] + NNN) and $FFF;
       $C: {RND}  Registers [X] := Random ($100) and KK;
       $D: {DRW}  begin
                     Registers [$F] := 0;
                     // Y coord
-                    for I := 0 to N - 1do
+                    for I := 0 to N - 1 do
                            // X coord
                            for J := 0 to 7 do
-                              // if current bit is not set
-                              if (Memory [RegisterI + I] and ($80 shr J)) <> 0 then
+                              // if current bit of sprite is set
+                              if (Memory [RegisterI + I] and (1 shl (7 - J))) <> 0 then
                               begin
-                                 K := Screen.GetPixel ((RX + J), (RY + I));
+                                 B := Screen.GetPixel ((RX + J), (RY + I));
 
-                                 if K = 1 then
+                                 if B = True then
                                     Registers [$F] := 1;
 
-                                 Screen.SetPixel((RX + J), (RY + I), K xor 1);
+                                 Screen.SetPixel((RX + J), (RY + I), B xor True);
                               end;
                  end;
 
       $E: {SKP, SKNP}
          case KK of
-            $9E: if KeyState [RX and $F] = 1  then PC := PC + 2;
-            $A1: if KeyState [RX and $F] <> 1 then PC := PC + 2;
+            $9E: if KeyState [RX] = True  then PC := PC + 2;
+            $A1: if KeyState [RX] <> True then PC := PC + 2;
          end;
       $F: {LD, ADD}
          case KK of
             $07: Registers [X] := DelayTimer;
-            $0A: Registers [X] := Screen.WaitKey;
+            $0A: Registers [X] := Screen.GetKey;
             $15: DelayTimer := RX;
             $18: SoundTimer := RX;
-            $1E: RegisterI  := RegisterI + RX;
+            $1E: begin
+                    I  := RegisterI + RX;
+                    Registers [$F] := 0;
+                    if I > $FFF then Registers [$F] := 1;
+                    RegisterI := I and $FFF;
+                 end;
             $29: RegisterI  := 5 * RX;
             $33: begin
                     Memory [RegisterI] := RX div 100;
                     Memory [RegisterI + 1] := (RX div 10) mod 10;
                     Memory [RegisterI + 2] := (RX mod 100) mod 10;
                  end;
-            $55:
-               for I := 0 to $F do
-                  Memory [RegisterI + I] := Registers [I];
-            $65:
-               for I := 0 to $F do
-                  Registers [I] := Memory [RegisterI + I];
+            $55: begin
+                    for I := 0 to RX do
+                       Memory [RegisterI + I] := Registers [I];
+                    RegisterI := RegisterI + RX + 1;
+                 end;
+            $65: begin
+                    for I := 0 to RX do
+                       Registers [I] := Memory [RegisterI + I];
+                    RegisterI := RegisterI + RX + 1;
+                 end;
          end;
    end;
-end;
-
-procedure TChip8VM.ClearScreen;
-var
-   I, J : Integer;
-begin
-   for I := 0 to 63 do
-      for J := 0 to 31 do
-         Screen.SetPixel (I, J, 0);
 end;
 
 procedure TChip8VM.RunLoop;
@@ -264,7 +257,7 @@ begin
    begin
       Evaluate;
       Screen.Display;
-      Screen.UpdateKeyState;
+      Screen.Update;
       SDL_Delay (ClockTick);
    end;
 end;
