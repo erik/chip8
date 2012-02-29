@@ -45,13 +45,13 @@ private
    RegisterI              : Word;
 
    { Program memory }
-   Memory                 : Chip8ROM;
-   PC                     : Word;
+   Memory                 : array [0 .. MemorySize] of Byte;
+   PC                     : 0 .. MemorySize;
 
    DelayTimer, SoundTimer : Byte;
 
-   Stack                  : array [1 .. StackSize] of Word;
-   SP                     : 0 .. StackSize;
+   Stack                  : array [1 .. StackSize + 1] of Word;
+   SP                     : 0 .. StackSize + 1;
 
    Screen                 : TScreen;
 public
@@ -70,23 +70,17 @@ var
 begin
    Randomize;
 
-   for I := 0 to High (Registers) do
-      Registers [I] := 0;
-
-   for I := 0 to High (Font) do
-      Memory [I] := Font [I];
-
-   for I := 0 to High (Prog) do
-      Memory [I + $200] := Prog [I];
-
-   for I := 1 to High (Stack) do
-      Stack [I] := 0;
-
    RegisterI := 0;
    DelayTimer := 0;
    SoundTimer := 0;
    PC := $200;
    SP := 0;
+
+   for I := 0 to $4F do
+      Memory [I] := Font [I];
+
+   for I := 0 to ROMSize do
+      Memory [I + $200] := Prog [I];
 
    Screen := TSDLScreen.Create (ScreenScale);
    Screen.ClearScreen;
@@ -101,12 +95,9 @@ end;
 procedure TChip8VM.Evaluate;
 var
    Instruction   : Word;
-   OP            : Byte;
-   X, Y          : 0 .. 15;
+   OP, X, Y      : 0 .. 15;
    RX, RY, KK, N : Byte;
    NNN           : Word;
-
-   KeyState            : KeyboardState;
 
    { general purpose }
    I, J  : Integer;
@@ -115,8 +106,9 @@ begin
    Instruction := (Memory [PC] shl 8) or Memory [PC + 1];
    PC          := PC + 2;
 
-   I := 0;
-   J := 0;
+   if PC >= MemorySize -1 then PC := 0;
+
+   I := 0; J := 0;
 
    OP  := (Instruction and $F000) shr 12;
    X   := (Instruction and $0F00) shr  8;
@@ -129,9 +121,7 @@ begin
    RX  := Registers [X];
    RY  := Registers [Y];
 
-   KeyState := Screen.Keys;
-
-   { write (Format ('%.4x ', [Instruction])); }
+   {write (Format ('%.4x ', [Instruction]));}
 
    if DelayTimer > 0 then DelayTimer := DelayTimer - 1;
    if SoundTimer > 0 then SoundTimer := SoundTimer - 1;
@@ -159,7 +149,7 @@ begin
       4: {SNE}   if RX <> KK then PC := PC + 2;
       5: {SE}    if RX =  RY then PC := PC + 2;
       6: {LD}    Registers [X] := KK;
-      7: {ADD}   Registers [X] := (RX + KK) and $FF;
+      7: {ADD}   Registers [X] := RX + KK;
       8: {LD, OR, AND, XOR, SUB, SHR, SUBN, SHL}
          case KK of
             0: Registers [X] := RY;
@@ -168,7 +158,8 @@ begin
             3: Registers [X] := RX xor RY;
             4: begin
                   I := RX + RY;
-                  if I > $FF then Registers [$F] := 1;
+                  if I > $FF then Registers [$F] := 1
+                  else Registers [$F] := 0;
                   Registers [X] := I and $FF;
                end;
             5: begin
@@ -187,7 +178,7 @@ begin
                   Registers [X] := RY - RX;
                end;
             $E: begin
-                   if (RX shr 7) and $1 = $1 then Registers [$F] := 1
+                   if RX and ($1 shl 7) = $1 then Registers [$F] := 1
                    else Registers [$F] := 0;
                    Registers [X] := RX shl 1;
                 end;
@@ -195,7 +186,7 @@ begin
       9: {SNE}   if RX <> RY then PC := PC + 2;
       $A: {LD}   RegisterI := NNN;
       $B: {JP}   PC := (Registers [0] + NNN) and $FFF;
-      $C: {RND}  Registers [X] := Random ($100) and KK;
+      $C: {RND}  Registers [X] := Random ($FFF) and KK;
       $D: {DRW}  begin
                     Registers [$F] := 0;
                     // Y coord
@@ -216,8 +207,8 @@ begin
 
       $E: {SKP, SKNP}
          case KK of
-            $9E: if KeyState [RX] = True  then PC := PC + 2;
-            $A1: if KeyState [RX] <> True then PC := PC + 2;
+            $9E: if Screen.Keys [RX] = True  then PC := PC + 2;
+            $A1: if Screen.Keys [RX] <> True then PC := PC + 2;
          end;
       $F: {LD, ADD}
          case KK of
@@ -240,12 +231,10 @@ begin
             $55: begin
                     for I := 0 to RX do
                        Memory [RegisterI + I] := Registers [I];
-                    RegisterI := RegisterI + RX + 1;
                  end;
             $65: begin
                     for I := 0 to RX do
                        Registers [I] := Memory [RegisterI + I];
-                    RegisterI := RegisterI + RX + 1;
                  end;
          end;
    end;

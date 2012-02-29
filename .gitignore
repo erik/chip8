@@ -1,3 +1,4 @@
 chip8
 *.ppu
 *.o
+ROM/*

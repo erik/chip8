@@ -72,12 +72,12 @@ end;
 
 function TScreen.GetPixel (X, Y : Integer) : Boolean;
 begin
-   Result := Screen [X][Y];
+   Result := Screen [X and (ScreenWidth - 1)][Y and (ScreenHeight - 1)];
 end;
 
 procedure TScreen.SetPixel (X, Y : Integer; B : Boolean);
 begin
-   Screen [X][Y] := B;
+   Screen [X and (ScreenWidth - 1)][Y and (ScreenHeight - 1)] := B;
 end;
 
 procedure TScreen.ClearScreen;
@@ -111,8 +111,6 @@ begin
 
    repeat
       Key := PollKey;
-      if Key.KeyType = Press then writeln ('keypress => ', Key.key);
-
       if Key.KeyType = Press  then
          KeyState [Key.Key] := True
       else if Key.KeyType = Release then

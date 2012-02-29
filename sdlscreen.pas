@@ -51,13 +51,13 @@ end;
 procedure TSDLScreen.Display;
 var
    I, J   : Integer;
-   SX, SY : Integer;
+   SX, SY : LongWord;
    P      : LongWord;
 begin
    for I := 0 to ScreenWidth - 1 do
       for J := 0 to ScreenHeight - 1 do
       begin
-         if Self.Screen [I][J] then P := $00FF00FF else P := $222222FF;
+         if Self.Screen [I][J] then P := $FFFFFFFF else P := $222222FF;
          SX := I * Scale;
          SY := J * Scale;
 
