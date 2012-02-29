@@ -6,7 +6,7 @@ interface
 
 uses
    Classes, SysUtils,
-   Screen, SDL;
+   Screen, SDLScreen, SDL;
 
 const
    MemorySize  = $0FFF;
@@ -89,7 +89,7 @@ begin
    PC := $200;
    SP := 0;
 
-   Screen := TScreen.Create (ScreenScale);
+   Screen := TSDLScreen.Create (ScreenScale);
    ClearScreen;
 end;
 
