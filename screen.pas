@@ -49,6 +49,8 @@ public
    procedure Display; virtual abstract;
 
    function GetKey : Byte;
+
+   procedure ScrollDown (Lines : Byte);
 end;
 
 implementation
@@ -116,6 +118,11 @@ begin
       else if Key.KeyType = Release then
          KeyState [Key.Key] := False;
    until Key.KeyType = None;
+end;
+
+procedure TScreen.ScrollDown (Lines : Byte);
+begin
+   {$WARNING write me}
 end;
 
 end. // unit screen
