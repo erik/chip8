@@ -110,7 +110,7 @@ begin
    for I := Low (Prog) to High (Prog) do
       Memory [I + $200] := Prog [I];
 
-   Screen := TSDLScreen.Create (800, 600);
+   Screen := TSDLScreen.Create (Chip8Width * 10, Chip8Height * 10);
    Screen.ClearScreen;
 end;
 
@@ -150,7 +150,7 @@ begin
 
   { writeln
       (Format ('PC: %.4x INS: %.4x X: %.2x Y: %.2X RX: %.2x RY: %.2x I: %.3x',
-               [PC, Instruction, X, Y, RX, RY, RegisterI])); }
+               [PC, Instruction, X, Y, RX, RY, RegisterI]));}
 
 
    if DelayTimer > 0 then DelayTimer := DelayTimer - 1;
@@ -246,7 +246,21 @@ begin
 
       $D:
          if N = 0 then                                           { DRW0 Vx, Vy }
+         begin
+            Registers [$F] := 0;
+            // XXX: This is completely broken
+            for I := 0 to 31 do
+               for J := 0 to 7 do
+                  if (Memory [RegisterI + I] and (1 shl (7 - J))) <> 0 then
+                  begin
+                     B := Screen.GetPixel (RX + J, RY + I);
 
+                     if B = True then
+                        Registers [$F] := 1;
+
+                     Screen.SetPixel (RX + J, RY + I, B xor True);
+                  end;
+         end
          else                                                    { DRW Vx, Vy }
          begin
             Registers [$F] := 0;
@@ -302,11 +316,13 @@ begin
                         Registers [I] := Memory [RegisterI + I];
                   end;
              $75: begin                                          { LD R, Vx }
-                     for I := 0 to (X and $7) do
+                     if X > 7 then X := 7;
+                     for I := 0 to X do
                         SChip8Flags [I] := Registers [I];
                   end;
              $85: begin                                          { LD Vx, R }
-                     for I := 0 to (X and $7) do
+                     if X > 7 then X := 7;
+                     for I := 0 to X do
                         Registers [I] := SChip8Flags [I];
                   end;
           end;
@@ -318,7 +334,7 @@ begin
 
    while True do
    begin
-      Evaluate;
+      if not Screen.Paused then Evaluate;
       Screen.Display;
       Screen.Update;
       SDL_Delay (ClockTick);

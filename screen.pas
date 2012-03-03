@@ -33,6 +33,7 @@ protected
    Screen   : ScreenArrayType;
    KeyState : KeyboardState;
    Mode     : ScreenMode;
+   IsPaused : Boolean;
 
    function PollKey : KeyPress; virtual abstract;
    function WaitKey : KeyPress; virtual abstract;
@@ -42,7 +43,8 @@ public
    constructor Create; virtual;
    destructor Destroy; override;
 
-   property Keys : KeyboardState read KeyState;
+   property Keys   : KeyboardState read KeyState;
+   property Paused : Boolean read IsPaused;
 
    procedure SetPixel (X, Y : Integer;
                        B    : Boolean);
@@ -73,6 +75,7 @@ constructor TScreen.Create;
 var
    I, J : Integer;
 begin
+   IsPaused := False;
 
    SetLength(Screen, Chip8Width, Chip8Height);
    Mode := Normal;
@@ -186,6 +189,8 @@ end;
 
 procedure TScreen.SetLow;
 begin
+   writeln ('Switching to normal mode.');
+
    Mode := Normal;
    Screen := CreateNewScreen;
    ClearScreen;
@@ -193,6 +198,8 @@ end;
 
 procedure TScreen.SetHigh;
 begin
+   writeln ('Switching to extended mode.');
+
    Mode := Extended;
    Screen := CreateNewScreen;
    ClearScreen;

@@ -22,7 +22,7 @@ public
    destructor Destroy; override;
 
    procedure Display; override;
-   procedure SetLow; override;
+   procedure SetLow;  override;
    procedure SetHigh; override;
 end;
 
@@ -35,7 +35,7 @@ begin
    ScaleW := W / Chip8Width;
    ScaleH := H / Chip8Height;
 
-   DisplayScreen := SDL_SetVideoMode (W, H, 32, SDL_SWSURFACE or SDL_RESIZABLE);
+   DisplayScreen := SDL_SetVideoMode (W, H, 32, SDL_SWSURFACE);
 
    if DisplayScreen = nil then
       raise SDLException.Create ('SDL Init failed!');
@@ -60,12 +60,13 @@ begin
    for X := 0 to Self.ScreenWidth do
       for Y := 0 to Self.ScreenHeight do
       begin
-         if Self.Screen [X][Y] then P := $FFFFFFFF else P := $222222FF;
+         if Self.Screen [X][Y] then P := $FFFFFFFF else P := $70;
          SX := Round (X * ScaleW);
          SY := Round (Y * ScaleH);
 
          BoxColor (DisplayScreen, SX, SY, Round (SX + ScaleW), Round (SY + ScaleH), P);
       end;
+
    SDL_Flip (DisplayScreen);
 end;
 
@@ -85,6 +86,7 @@ begin
       with Result do
          case Event^.Key.Keysym.Sym of
             SDLK_Escape      : raise QuitException.Create ('Quit');
+            SDLK_p           : if Event^.Type_ = SDL_KEYDOWN then IsPaused := not IsPaused;
             SDLK_KP0         : Key := 0;
             SDLK_KP1         : Key := 1;
             SDLK_KP2         : Key := 2;
