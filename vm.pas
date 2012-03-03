@@ -52,6 +52,11 @@ const
          $FF, $FF, $E1, $E0, $FE, $FE, $E0, $E1, $FF, $FF,  // E
          $FF, $FF, $E1, $E0, $FE, $FE, $E0, $E0, $E0, $E0); // F
 
+type
+   InstructionExitException    = class (Exception);
+   IllegalInstructionException = class (Exception);
+
+
 type Chip8ROM = array [0 .. ROMSize] of Byte;
 
 type TChip8VM = class
@@ -60,11 +65,13 @@ private
    Registers              : array [0 .. $F] of Byte;
 
    { 16 bit register }
-   RegisterI              : Word;
+   RegisterI              : 0 .. $FFF;
 
    { Program memory }
    Memory                 : array [0 .. MemorySize] of Byte;
    PC                     : 0 .. MemorySize;
+
+   SChip8Flags            : array [0 .. 7] of Byte;
 
    DelayTimer, SoundTimer : Byte;
 
@@ -103,7 +110,7 @@ begin
    for I := Low (Prog) to High (Prog) do
       Memory [I + $200] := Prog [I];
 
-   Screen := TSDLScreen.Create (ScreenScale);
+   Screen := TSDLScreen.Create (800, 600);
    Screen.ClearScreen;
 end;
 
@@ -140,10 +147,11 @@ begin
    RX  := Registers [X];
    RY  := Registers [Y];
 
-   {
-    writeln (Format ('PC: %.4x INS: %.4x X: %.2x Y: %.2X RX: %.2x RY: %.2x I: %.3x',
-                     [PC, Instruction, X, Y, RX, RY, RegisterI]));
-   }
+
+  { writeln
+      (Format ('PC: %.4x INS: %.4x X: %.2x Y: %.2X RX: %.2x RY: %.2x I: %.3x',
+               [PC, Instruction, X, Y, RX, RY, RegisterI])); }
+
 
    if DelayTimer > 0 then DelayTimer := DelayTimer - 1;
    if SoundTimer > 0 then SoundTimer := SoundTimer - 1;
@@ -155,11 +163,12 @@ begin
                     SP := SP - 1;
                     PC := Stack [SP];
                  end;
-            $FB:  ;                                              { SCR }
-            $FC:  ;                                              { SCR }
-            $FD:  ;                                              { EXIT }
-            $FE:  ;                                              { LOW  }
-            $FF:  ;                                              { HIGH }
+            $FB:  Screen.ScrollRight;                            { SCR }
+            $FC:  Screen.ScrollLeft;                             { SCL }
+            $FD:  raise InstructionExitException.Create          { EXIT }
+                     ('EXIT called');
+            $FE:  Screen.SetLow;                                 { LOW  }
+            $FF:  Screen.SetHigh;                                { HIGH }
          else if Y = $C then Screen.ScrollDown (N);              { SCD }
          end;
 
@@ -219,8 +228,10 @@ begin
                end;
 
             $E: begin                                            { SHL Vx }
-                   if RX and ($1 shl 7) = $1 then Registers [$F] := 1
-                   else Registers [$F] := 0;
+                   if RX and ($1 shl 7) = $1 then
+                      Registers [$F] := 1
+                   else
+                      Registers [$F] := 0;
                    Registers [X] := (RX shl 1) and $FF;
                 end;
          end;
@@ -235,6 +246,7 @@ begin
 
       $D:
          if N = 0 then                                           { DRW0 Vx, Vy }
+
          else                                                    { DRW Vx, Vy }
          begin
             Registers [$F] := 0;
@@ -245,12 +257,12 @@ begin
                   // if current bit of sprite is set
                   if (Memory [RegisterI + I] and (1 shl (7 - J))) <> 0 then
                   begin
-                     B := Screen.GetPixel ((RX + J) and $3f, (RY + I) and $1f);
+                     B := Screen.GetPixel (RX + J, RY + I);
 
                      if B = True then
                         Registers [$F] := 1;
 
-                     Screen.SetPixel((RX + J) and $3f, (RY + I) and $1f, B xor True);
+                     Screen.SetPixel (RX + J, RY + I, B xor True);
                   end;
          end;
 
@@ -268,16 +280,16 @@ begin
              $18: SoundTimer := RX;                              { LD ST, Vx }
 
              $1E: begin                                          { ADD I, Vx }
-                     I  := RegisterI + RX;
+                     I := RegisterI + RX;
                      Registers [$F] := 0;
                      if I > $FFF then Registers [$F] := 1;
                      RegisterI := I and $FFF;
                   end;
 
              $29: RegisterI := 5 * RX;                           { LD F, Vx }
-             $30: ;                                              { LD HF, Vx }
+             $30: RegisterI := $50 + 10 * RX;                    { LD HF, Vx }
              $33: begin                                          { LD B, Vx }
-                     Memory [RegisterI] := RX div 100;
+                     Memory [RegisterI]     := RX div 100;
                      Memory [RegisterI + 1] := (RX div 10) mod 10;
                      Memory [RegisterI + 2] := (RX mod 100) mod 10;
                   end;
@@ -289,14 +301,21 @@ begin
                      for I := 0 to X do
                         Registers [I] := Memory [RegisterI + I];
                   end;
-             $75: ;                                              { LD R, Vx }
-             $85: ;                                              { LD Vx, R }
+             $75: begin                                          { LD R, Vx }
+                     for I := 0 to (X and $7) do
+                        SChip8Flags [I] := Registers [I];
+                  end;
+             $85: begin                                          { LD Vx, R }
+                     for I := 0 to (X and $7) do
+                        Registers [I] := SChip8Flags [I];
+                  end;
           end;
    end;
 end;
 
 procedure TChip8VM.RunLoop;
 begin
+
    while True do
    begin
       Evaluate;

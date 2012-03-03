@@ -8,13 +8,14 @@ uses
    Classes, SysUtils;
 
 const
-   ScreenWidth = 64;
-   ScreenHeight = 32;
-   ScreenSize = ScreenWidth * ScreenHeight;
+   Chip8Width  = 64;   Chip8Height = 32;
+   SChip8Width = 138; SChip8Height = 74;
 
 type
-   KeyboardState = array [0 .. $F] of Boolean;
-   ScreenArray = array [0 .. ScreenWidth, 0 .. ScreenHeight] of Boolean;
+   KeyboardState   = array [0 .. $F] of Boolean;
+   ScreenArrayType = array of array of Boolean;
+   Nibble          = 0 .. 15;
+   ScreenMode      = (Extended, Normal);
 
 type
    KeyPress = Record
@@ -29,19 +30,23 @@ type
 
 type TScreen = class
 protected
-   Screen   : ScreenArray;
+   Screen   : ScreenArrayType;
    KeyState : KeyboardState;
+   Mode     : ScreenMode;
 
    function PollKey : KeyPress; virtual abstract;
    function WaitKey : KeyPress; virtual abstract;
+
+   function CreateNewScreen : ScreenArrayType;
 public
    constructor Create; virtual;
    destructor Destroy; override;
 
    property Keys : KeyboardState read KeyState;
 
-   procedure SetPixel (X, Y : Integer; B : Boolean);
-   function  GetPixel (X,Y   : Integer) : Boolean;
+   procedure SetPixel (X, Y : Integer;
+                       B    : Boolean);
+   function  GetPixel (X,Y  : Integer) : Boolean;
 
    procedure ClearScreen;
    procedure Update;
@@ -50,7 +55,16 @@ public
 
    function GetKey : Byte;
 
-   procedure ScrollDown (Lines : Byte);
+   function ScreenWidth  : Integer;
+   function ScreenHeight : Integer;
+   function ShiftWidth   : Integer;
+
+   procedure ScrollDown (Lines : Nibble);
+   procedure ScrollLeft;
+   procedure ScrollRight;
+
+   procedure SetLow;  virtual;
+   procedure SetHigh; virtual;
 end;
 
 implementation
@@ -59,12 +73,16 @@ constructor TScreen.Create;
 var
    I, J : Integer;
 begin
+
+   SetLength(Screen, Chip8Width, Chip8Height);
+   Mode := Normal;
+
    for I := 0 to High (KeyState) do
       KeyState [I] := False;
 
    for I := 0 to ScreenWidth do
       for J := 0 to ScreenHeight do
-         Screen [I][J] := False;
+         SetPixel (I, J, False);
 end;
 
 destructor TScreen.Destroy;
@@ -74,21 +92,26 @@ end;
 
 function TScreen.GetPixel (X, Y : Integer) : Boolean;
 begin
-   Result := Screen [X and (ScreenWidth - 1)][Y and (ScreenHeight - 1)];
+   X := X and ScreenWidth;
+   Y := Y and ScreenHeight;
+   Result := Screen [X][Y];
 end;
 
 procedure TScreen.SetPixel (X, Y : Integer; B : Boolean);
 begin
-   Screen [X and (ScreenWidth - 1)][Y and (ScreenHeight - 1)] := B;
+   if X > ScreenWidth  then X := ScreenWidth;
+   if Y > ScreenHeight then Y := ScreenHeight;
+
+   Screen [X][Y] := B;
 end;
 
 procedure TScreen.ClearScreen;
 var
-   I, J : Integer;
+   X, Y : Integer;
 begin
-   for I := 0 to ScreenWidth - 1 do
-      for J := 0 to ScreenHeight - 1 do
-         SetPixel (I, J, False);
+   for X := 0 to ScreenWidth do
+      for Y := 0 to ScreenHeight do
+         SetPixel (X, Y, False);
 end;
 
 function TScreen.GetKey : Byte;
@@ -110,7 +133,6 @@ procedure TScreen.Update;
 var
    Key : KeyPress;
 begin
-
    repeat
       Key := PollKey;
       if Key.KeyType = Press  then
@@ -120,9 +142,90 @@ begin
    until Key.KeyType = None;
 end;
 
-procedure TScreen.ScrollDown (Lines : Byte);
+procedure TScreen.ScrollDown (Lines : Nibble);
+var
+   X, Y  : Integer;
+   NewScreen : array of array of Boolean;
 begin
-   {$WARNING write me}
+   NewScreen := CreateNewScreen;
+
+   for X := 0 to ScreenWidth do
+      for Y := 0 to ScreenHeight do
+         if Y < Lines then NewScreen [X][Y] := False
+         else NewScreen [X][Y] := Screen [X][Y - Lines];
+end;
+
+procedure TScreen.ScrollLeft;
+var
+   X, Y   : Integer;
+   NewScreen : array of array of Boolean;
+begin
+   NewScreen := CreateNewScreen;
+
+   for X := 0 to ScreenWidth do
+      for Y := 0 to ScreenHeight do
+         if X >= ScreenWidth - ShiftWidth then NewScreen [X][Y] := False
+         else NewScreen [X][Y] := Screen [X + ShiftWidth][Y];
+   Screen := NewScreen;
+end;
+
+procedure TScreen.ScrollRight;
+var
+   X, Y   : Integer;
+   NewScreen : array of array of Boolean;
+begin
+   NewScreen := CreateNewScreen;
+
+   for X := 0 to ScreenWidth do
+      for Y := 0 to ScreenHeight do
+         if X < ShiftWidth then NewScreen [X][Y] := False
+         else NewScreen [X][Y] := Screen [X - ShiftWidth][Y];
+   Screen := NewScreen;
+end;
+
+
+procedure TScreen.SetLow;
+begin
+   Mode := Normal;
+   Screen := CreateNewScreen;
+   ClearScreen;
+end;
+
+procedure TScreen.SetHigh;
+begin
+   Mode := Extended;
+   Screen := CreateNewScreen;
+   ClearScreen;
+end;
+
+function TScreen.ScreenWidth  : Integer;
+begin
+   Result := High (Screen);
+end;
+
+function TScreen.ScreenHeight : Integer;
+begin
+   Result := High (Screen [0]);
+end;
+
+function TScreen.ShiftWidth : Integer;
+begin
+   case Mode of
+      Extended: Result := 4;
+      Normal  : Result := 2;
+   end;
+end;
+
+function TScreen.CreateNewScreen : ScreenArrayType;
+var
+   Arr : ScreenArrayType;
+begin
+   case Mode of
+      Extended: SetLength (Arr, SChip8Width, SChip8Height);
+      Normal:   SetLength (Arr, Chip8Width,  Chip8Height);
+   end;
+
+   Result := Arr;
 end;
 
 end. // unit screen
